@@ -2,25 +2,50 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { sendEmail } from "../utils/sendEmail.js";
 
-// --- Signup Controller ---
+// ---------------------- SIGNUP ----------------------
 export const signup = async (req, res) => {
   console.log("🔥 Signup route hit!");
 
   try {
     const { fullName, email, phone, password } = req.body;
 
-    // Step 1: Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+    // ---------------- VALIDATIONS ----------------
+
+    // Validate Email Format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "Invalid email format" });
     }
 
-    // Step 2: Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Validate Phone Number (Indian)
+    const phoneRegex = /^[6-9]\d{9}$/;
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({ message: "Invalid phone number" });
+    }
 
-    // Step 3: Create new user
+    // Validate Password Strength
+    const passwordRegex =
+      /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{6,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        message:
+          "Password must contain at least 6 characters including letters and numbers",
+      });
+    }
+
+    // --------------------------------------------------
+
+    // Check if user exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser)
+      return res.status(400).json({ message: "User already exists" });
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Save new user
     await User.create({
       fullName,
       email,
@@ -29,28 +54,30 @@ export const signup = async (req, res) => {
     });
 
     res.status(201).json({ message: "User registered successfully" });
+
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
 
-// --- Login Controller ---
+// ---------------------- LOGIN ----------------------
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Step 1: Find user
+    // Find user
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user)
+      return res.status(404).json({ message: "User not found" });
 
-    // Step 2: Compare password
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res.status(400).json({ message: "Invalid credentials" });
 
-    // Step 3: Create JWT
+    // Create token
     const token = jwt.sign(
-      { id: user._id, email: user.email },
+      { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -58,14 +85,18 @@ export const login = async (req, res) => {
     res.json({
       message: "Login successful",
       token,
-      user: { id: user._id, fullName: user.fullName, email: user.email },
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+      }
     });
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
 
-// --- Forgot Password Controller ---
+// ---------------------- FORGOT PASSWORD ----------------------
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -74,34 +105,67 @@ export const forgotPassword = async (req, res) => {
     if (!user)
       return res.status(404).json({ message: "User not found" });
 
-    // Generate reset token
+    // Generate plain reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex");
 
-    // Store hashed token and expiry
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 mins
+    // Hash & save token
+    user.resetPasswordToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
     await user.save({ validateBeforeSave: false });
 
-    // (In real project → send email)
-    console.log(`Password reset link: http://localhost:5050/reset-password/${resetToken}`);
+    // Frontend URL
+    const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    // Print for testing
+    console.log("🔑 RESET TOKEN:", resetToken);
+    console.log("🔗 RESET URL:", resetURL);
+
+    // Send Email
+    await sendEmail({
+      to: user.email,
+      subject: "Reset Your AIMind Password",
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>Click the link below to reset your password</p>
+        <a href="${resetURL}">Reset Password</a>
+        <p>This link will expire in 10 minutes.</p>
+      `,
+    });
 
     res.json({ message: "Password reset link sent to email" });
+
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
 
-// --- Reset Password Controller ---
+// ---------------------- RESET PASSWORD ----------------------
 export const resetPassword = async (req, res) => {
   try {
     const { token } = req.params;
-    const { password } = req.body;
+    const { password, confirmPassword } = req.body;
 
-    // Hash token to match stored one
-    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    // Confirm password check
+    if (!password || !confirmPassword) {
+      return res.status(400).json({ message: "Both fields are required" });
+    }
 
-    // Find user by valid token and non-expired
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+
+    // Hash incoming token
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    // Find user with valid token
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpire: { $gt: Date.now() },
@@ -111,16 +175,16 @@ export const resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired token" });
 
     // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
+    user.password = await bcrypt.hash(password, 10);
 
-    // Clear reset fields
+    // Clear reset token fields
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
     await user.save();
 
     res.json({ message: "Password reset successful" });
+
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
   }
