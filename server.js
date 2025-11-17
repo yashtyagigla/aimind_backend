@@ -6,6 +6,12 @@ import authRoutes from "./routes/authRoutes.js";
 
 dotenv.config();
 
+console.log("BREVO_HOST =", process.env.BREVO_HOST);
+console.log("BREVO_USER =", process.env.BREVO_USER);
+console.log("BREVO_PASS =", process.env.BREVO_PASS);
+console.log("EMAIL_FROM =", process.env.EMAIL_FROM);
+console.log("FRONTEND_URL =", process.env.FRONTEND_URL);
+
 const app = express();
 const PORT = process.env.PORT || 5050;
 

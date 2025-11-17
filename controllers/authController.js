@@ -96,94 +96,206 @@ export const login = async (req, res) => {
   }
 };
 
-// ---------------------- FORGOT PASSWORD ----------------------
+// // ---------------------- FORGOT PASSWORD ----------------------
+// export const forgotPassword = async (req, res) => {
+//   try {
+//     const { email } = req.body;
+
+//     const user = await User.findOne({ email });
+//     if (!user)
+//       return res.status(404).json({ message: "User not found" });
+
+//     // Generate plain reset token
+//     const resetToken = crypto.randomBytes(32).toString("hex");
+
+//     // Hash & save token
+//     user.resetPasswordToken = crypto
+//       .createHash("sha256")
+//       .update(resetToken)
+//       .digest("hex");
+
+//     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+//     await user.save({ validateBeforeSave: false });
+
+//     // Frontend URL
+//     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+//     // Print for testing
+//     console.log("🔑 RESET TOKEN:", resetToken);
+//     console.log("🔗 RESET URL:", resetURL);
+
+//     // Send Email
+//     await sendEmail({
+//       to: user.email,
+//       subject: "Reset Your AIMind Password",
+//       html: `
+//         <h2>Password Reset Request</h2>
+//         <p>Click the link below to reset your password</p>
+//         <a href="${resetURL}">Reset Password</a>
+//         <p>This link will expire in 10 minutes.</p>
+//       `,
+//     });
+
+//     res.json({ message: "Password reset link sent to email" });
+
+//   } catch (error) {
+//     res.status(500).json({ message: "Server Error", error: error.message });
+//   }
+// };
+
+// ================= FORGOT PASSWORD =================
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
     const user = await User.findOne({ email });
     if (!user)
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "Email not found" });
 
-    // Generate plain reset token
+    // Generate token
     const resetToken = crypto.randomBytes(32).toString("hex");
 
-    // Hash & save token
-    user.resetPasswordToken = crypto
-      .createHash("sha256")
+    // Hash token before storing
+    user.resetPasswordToken = crypto.createHash("sha256")
       .update(resetToken)
       .digest("hex");
 
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 min
 
     await user.save({ validateBeforeSave: false });
 
-    // Frontend URL
+    // URL sent to frontend page
     const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    // Print for testing
     console.log("🔑 RESET TOKEN:", resetToken);
     console.log("🔗 RESET URL:", resetURL);
 
-    // Send Email
     await sendEmail({
       to: user.email,
       subject: "Reset Your AIMind Password",
       html: `
-        <h2>Password Reset Request</h2>
-        <p>Click the link below to reset your password</p>
-        <a href="${resetURL}">Reset Password</a>
-        <p>This link will expire in 10 minutes.</p>
-      `,
+        <h2>Password Reset</h2>
+        <p>Click the button below:</p>
+        <a href="${resetURL}" style="
+          display:inline-block;
+          padding:10px 20px;
+          background:#4f46e5;
+          color:white;
+          border-radius:5px;
+          text-decoration:none;">
+          Reset Password
+        </a>
+        <p>This link expires in 10 minutes.</p>
+      `
     });
 
-    res.json({ message: "Password reset link sent to email" });
+    res.json({ message: "Password reset email sent successfully" });
 
-  } catch (error) {
-    res.status(500).json({ message: "Server Error", error: error.message });
+  } catch (err) {
+    console.error("EMAIL ERROR:", err);
+    res.status(500).json({ message: "Server Error", error: err.message });
   }
 };
+
+// // ---------------------- RESET PASSWORD ----------------------
+// export const resetPassword = async (req, res) => {
+//   try {
+//     const { token } = req.params;
+//     const { password, confirmPassword } = req.body;
+
+//     // Confirm password check
+//     if (!password || !confirmPassword) {
+//       return res.status(400).json({ message: "Both fields are required" });
+//     }
+
+//     if (password !== confirmPassword) {
+//       return res.status(400).json({ message: "Passwords do not match" });
+//     }
+
+//     // Hash incoming token
+//     const hashedToken = crypto
+//       .createHash("sha256")
+//       .update(token)
+//       .digest("hex");
+
+//     // Find user with valid token
+//     const user = await User.findOne({
+//       resetPasswordToken: hashedToken,
+//       resetPasswordExpire: { $gt: Date.now() },
+//     });
+
+//     if (!user)
+//       return res.status(400).json({ message: "Invalid or expired token" });
+
+//     // Hash new password
+//     user.password = await bcrypt.hash(password, 10);
+
+//     // Clear reset token fields
+//     user.resetPasswordToken = undefined;
+//     user.resetPasswordExpire = undefined;
+
+//     await user.save();
+
+//     res.json({ message: "Password reset successful" });
+
+//   } catch (error) {
+//     res.status(500).json({ message: "Server Error", error: error.message });
+//   }
+// };
 
 // ---------------------- RESET PASSWORD ----------------------
 export const resetPassword = async (req, res) => {
   try {
     const { token } = req.params;
-    const { password, confirmPassword } = req.body;
+    const { newPassword, confirmPassword } = req.body;
 
-    // Confirm password check
-    if (!password || !confirmPassword) {
-      return res.status(400).json({ message: "Both fields are required" });
+    // 1️⃣ Check both fields exist
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ message: "Both fields required" });
     }
 
-    if (password !== confirmPassword) {
+    // 2️⃣ Check both passwords match
+    if (newPassword !== confirmPassword) {
       return res.status(400).json({ message: "Passwords do not match" });
     }
 
-    // Hash incoming token
+    // 3️⃣ Optional → password strength
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{6,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters and contain letters & numbers"
+      });
+    }
+
+    // 4️⃣ Hash incoming token
     const hashedToken = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
 
-    // Find user with valid token
+    // 5️⃣ Find user with token + not expired
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpire: { $gt: Date.now() },
     });
 
-    if (!user)
+    if (!user) {
       return res.status(400).json({ message: "Invalid or expired token" });
+    }
 
-    // Hash new password
-    user.password = await bcrypt.hash(password, 10);
+    // 6️⃣ Save new password
+    user.password = await bcrypt.hash(newPassword, 10);
 
-    // Clear reset token fields
+    // 7️⃣ Clear reset details
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
     await user.save();
 
-    res.json({ message: "Password reset successful" });
+    res.json({
+      message: "Password reset successful"
+    });
 
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
