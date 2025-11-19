@@ -245,59 +245,98 @@ export const forgotPassword = async (req, res) => {
 // };
 
 // ---------------------- RESET PASSWORD ----------------------
+// export const resetPassword = async (req, res) => {
+//   try {
+//     const { token } = req.params;
+//     const { newPassword, confirmPassword } = req.body;
+
+//     // 1️⃣ Check both fields exist
+//     if (!newPassword || !confirmPassword) {
+//       return res.status(400).json({ message: "Both fields required" });
+//     }
+
+//     // 2️⃣ Check both passwords match
+//     if (newPassword !== confirmPassword) {
+//       return res.status(400).json({ message: "Passwords do not match" });
+//     }
+
+//     // 3️⃣ Optional → password strength
+//     const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{6,}$/;
+//     if (!passwordRegex.test(newPassword)) {
+//       return res.status(400).json({
+//         message: "Password must be at least 6 characters and contain letters & numbers"
+//       });
+//     }
+
+//     // 4️⃣ Hash incoming token
+//     const hashedToken = crypto
+//       .createHash("sha256")
+//       .update(token)
+//       .digest("hex");
+
+//     // 5️⃣ Find user with token + not expired
+//     const user = await User.findOne({
+//       resetPasswordToken: hashedToken,
+//       resetPasswordExpire: { $gt: Date.now() },
+//     });
+
+//     if (!user) {
+//       return res.status(400).json({ message: "Invalid or expired token" });
+//     }
+
+//     // 6️⃣ Save new password
+//     user.password = await bcrypt.hash(newPassword, 10);
+
+//     // 7️⃣ Clear reset details
+//     user.resetPasswordToken = undefined;
+//     user.resetPasswordExpire = undefined;
+
+//     await user.save();
+
+//     res.json({
+//       message: "Password reset successful"
+//     });
+
+//   } catch (error) {
+//     res.status(500).json({ message: "Server Error", error: error.message });
+//   }
+// };
+
 export const resetPassword = async (req, res) => {
   try {
     const { token } = req.params;
-    const { newPassword, confirmPassword } = req.body;
+    const { password } = req.body;
 
-    // 1️⃣ Check both fields exist
-    if (!newPassword || !confirmPassword) {
-      return res.status(400).json({ message: "Both fields required" });
-    }
+    console.log("➡️  Reset password request received with token:", token);
 
-    // 2️⃣ Check both passwords match
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ message: "Passwords do not match" });
-    }
-
-    // 3️⃣ Optional → password strength
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{6,}$/;
-    if (!passwordRegex.test(newPassword)) {
-      return res.status(400).json({
-        message: "Password must be at least 6 characters and contain letters & numbers"
-      });
-    }
-
-    // 4️⃣ Hash incoming token
     const hashedToken = crypto
       .createHash("sha256")
       .update(token)
       .digest("hex");
 
-    // 5️⃣ Find user with token + not expired
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpire: { $gt: Date.now() },
     });
 
     if (!user) {
+      console.log("❌ Invalid or expired token");
       return res.status(400).json({ message: "Invalid or expired token" });
     }
 
-    // 6️⃣ Save new password
-    user.password = await bcrypt.hash(newPassword, 10);
+    console.log("✅ Token verified. Updating password...");
 
-    // 7️⃣ Clear reset details
+    user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
     await user.save();
 
-    res.json({
-      message: "Password reset successful"
-    });
+    console.log("🎉 Password updated successfully!");
+    res.json({ message: "Password reset successful" });
 
   } catch (error) {
+    console.error("❌ RESET PASSWORD ERROR:", error);
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
