@@ -304,41 +304,57 @@ export const forgotPassword = async (req, res) => {
 
 export const resetPassword = async (req, res) => {
   console.log("🔥 RESET PASSWORD HIT");
-  console.log("Token from params:", req.params.token);
+  console.log("Token:", req.params.token);
   console.log("Body:", req.body);
 
   try {
     const { token } = req.params;
-    const { password } = req.body;
+    const { newPassword, confirmPassword } = req.body;
 
-    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    // 1️⃣ Validate fields
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ message: "Both fields required" });
+    }
 
-    console.log("Hashed token:", hashedToken);
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
 
+    // 2️⃣ Hash token
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    console.log("Hashed Token =", hashedToken);
+
+    // 3️⃣ Match user
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpire: { $gt: Date.now() },
     });
 
-    console.log("Matched user:", user?._id || "NO USER FOUND");
+    console.log("Matched User ID:", user?._id || "NO USER");
 
     if (!user) {
-      console.log("❌ TOKEN INVALID OR EXPIRED");
       return res.status(400).json({ message: "Invalid or expired token" });
     }
 
-    user.password = await bcrypt.hash(password, 10);
+    // 4️⃣ Save new password
+    user.password = await bcrypt.hash(newPassword, 10);
+
+    // 5️⃣ Clear reset data
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
     await user.save();
 
-    console.log("✅ PASSWORD RESET SUCCESSFUL");
+    console.log("✅ PASSWORD RESET SUCCESS");
 
     res.json({ message: "Password reset successful" });
 
   } catch (error) {
-    console.log("❌ RESET ERROR:", error);
+    console.error("❌ RESET ERROR:", error);
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
