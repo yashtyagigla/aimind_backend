@@ -96,6 +96,25 @@ export const login = async (req, res) => {
   }
 };
 
+
+// ---------------------- CURRENT USER ----------------------
+export const getCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      message: "Current user fetched successfully",
+      user,
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: "Server Error", error: error.message });
+  }
+};
 // // ---------------------- FORGOT PASSWORD ----------------------
 // export const forgotPassword = async (req, res) => {
 //   try {
