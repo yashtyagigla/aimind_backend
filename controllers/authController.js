@@ -303,28 +303,29 @@ export const forgotPassword = async (req, res) => {
 // };
 
 export const resetPassword = async (req, res) => {
+  console.log("🔥 RESET PASSWORD HIT");
+  console.log("Token from params:", req.params.token);
+  console.log("Body:", req.body);
+
   try {
     const { token } = req.params;
     const { password } = req.body;
 
-    console.log("➡️  Reset password request received with token:", token);
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
+    console.log("Hashed token:", hashedToken);
 
     const user = await User.findOne({
       resetPasswordToken: hashedToken,
       resetPasswordExpire: { $gt: Date.now() },
     });
 
+    console.log("Matched user:", user?._id || "NO USER FOUND");
+
     if (!user) {
-      console.log("❌ Invalid or expired token");
+      console.log("❌ TOKEN INVALID OR EXPIRED");
       return res.status(400).json({ message: "Invalid or expired token" });
     }
-
-    console.log("✅ Token verified. Updating password...");
 
     user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
@@ -332,11 +333,12 @@ export const resetPassword = async (req, res) => {
 
     await user.save();
 
-    console.log("🎉 Password updated successfully!");
+    console.log("✅ PASSWORD RESET SUCCESSFUL");
+
     res.json({ message: "Password reset successful" });
 
   } catch (error) {
-    console.error("❌ RESET PASSWORD ERROR:", error);
+    console.log("❌ RESET ERROR:", error);
     res.status(500).json({ message: "Server Error", error: error.message });
   }
 };
