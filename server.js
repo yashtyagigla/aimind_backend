@@ -17,7 +17,8 @@ const PORT = process.env.PORT || 5050;
 
 // ✅ must be before routes
 app.use(cors({
-  origin:["http://localhost:5173","http://localhost:5174","http://localhost:5175"],
+  origin:["http://localhost:5173","http://localhost:5174","http://localhost:5175","https://sokit-io.onrender.com"],
+  methods: "GET,POST,PUT,PATCH,DELETE",
    credentials: true,
 }));
 app.use(express.json());
