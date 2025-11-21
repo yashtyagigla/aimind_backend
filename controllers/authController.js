@@ -379,27 +379,66 @@ export const resetPassword = async (req, res) => {
 };
 
 // ================= UPDATE PROFILE =================
+// export const updateProfile = async (req, res) => {
+//   try {
+//     const userId = req.user.id;  // token se mila
+//     const { fullName, email, phone } = req.body;
+
+//     // Allowed fields only
+//     const updateData = {};
+//     if (fullName) updateData.fullName = fullName;
+//     if (email) updateData.email = email;
+//     if (phone) updateData.phone = phone;
+
+//     // Update in DB
+//     const updatedUser = await User.findByIdAndUpdate(
+//       userId,
+//       updateData,
+//       { new: true }
+//     ).select("-password");
+
+//     res.json({
+//       message: "Profile updated successfully",
+//       user: updatedUser
+//     });
+
+//   } catch (error) {
+//     res.status(500).json({ message: "Server Error", error: error.message });
+//   }
+// };
+
 export const updateProfile = async (req, res) => {
   try {
-    const userId = req.user.id;  // token se mila
+    const userId = req.user.id;
     const { fullName, email, phone } = req.body;
 
-    // Allowed fields only
-    const updateData = {};
-    if (fullName) updateData.fullName = fullName;
-    if (email) updateData.email = email;
-    if (phone) updateData.phone = phone;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Update in DB
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      updateData,
-      { new: true }
-    ).select("-password");
+    // 1️⃣ Duplicate Email Check
+    if (email && email !== user.email) {
+      const exists = await User.findOne({ email });
+      if (exists) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+      user.email = email;
+    }
+
+    // 2️⃣ Update allowed fields
+    if (fullName) user.fullName = fullName;
+    if (phone) user.phone = phone;
+
+    // 3️⃣ Save with validation
+    await user.save();
 
     res.json({
       message: "Profile updated successfully",
-      user: updatedUser
+      user: {
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        createdAt: user.createdAt
+      }
     });
 
   } catch (error) {
