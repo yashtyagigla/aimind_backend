@@ -3,6 +3,12 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendEmail } from "../utils/sendEmail.js";
+import Message from "../models/Message.js";
+import axios from "axios";
+import cloudinary from "../config/cloudinary.js";
+import Document from "../models/Document.js"; 
+import fs from "fs";
+const { default: pdfParse } = await import("pdf-parse");
 
 // ---------------------- SIGNUP ----------------------
 export const signup = async (req, res) => {
@@ -443,5 +449,217 @@ export const updateProfile = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ message: "Server Error", error: error.message });
+  }
+};
+
+// ================= Chat =================
+export const chat = async (req, res) => {
+  try {
+    const userId = req.user.id;       // protect middleware se aaya
+    const { message } = req.body;     // frontend se input
+
+    if (!message) {
+      return res.status(400).json({ message: "Message is required" });
+    }
+
+    // 1️⃣ Save user message in DB
+    await Message.create({
+      userId,
+      role: "user",
+      content: message,
+    });
+
+    // 2️⃣ Call FREE LLM (Groq) - ChatGPT jaisa
+    const aiRes = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",   // free Groq model
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are AIMind, a helpful AI assistant. Reply in clear and simple language.",
+          },
+          {
+            role: "user",
+            content: message,
+          },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const aiReply = aiRes.data.choices[0].message.content;
+
+    // 3️⃣ Save AI reply in DB
+    await Message.create({
+      userId,
+      role: "assistant",
+      content: aiReply,
+    });
+
+    // 4️⃣ Return reply to frontend
+    res.json({ reply: aiReply });
+  } catch (err) {
+    console.error("❌ CHAT ERROR:", err.response?.data || err.message);
+    res.status(500).json({
+      message: "Server Error",
+      error: err.response?.data || err.message,
+    });
+  }
+  
+};
+
+// ================= CHAT HISTORY =================
+export const getChatHistory = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const messages = await Message.find({ userId })
+      .sort({ createdAt: -1 }); // NEWEST FIRST
+
+    res.json({
+      success: true,
+      messages,
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error", error: err.message });
+  }
+};
+
+// export const uploadDocument = async (req, res) => {
+//   try {
+//     const { file } = req.body; // base64 string
+
+//     if (!file) {
+//       return res.status(400).json({ message: "File is required" });
+//     }
+
+//     const uploadRes = await cloudinary.uploader.upload(file, {
+//       folder: "aimind_docs",
+//       resource_type: "auto",   // auto-detect (pdf, image, doc, anything)
+//     });
+
+//     res.json({
+//       success: true,
+//       url: uploadRes.secure_url,
+//       public_id: uploadRes.public_id,
+//     });
+//   } catch (err) {
+//     res.status(500).json({
+//       message: "Upload failed",
+//       error: err.message,
+//     });
+//   }
+// };
+
+
+// ================= UPLOAD DOCUMENT =================
+// export const uploadDocument = async (req, res) => {
+//   try {
+//     if (!req.files || !req.files.file) {
+//       return res.status(400).json({ message: "File required" });
+//     }
+
+//     const file = req.files.file; // form-data file
+
+//     const uploadRes = await cloudinary.uploader.upload(file.tempFilePath, {
+//       folder: "aimind_docs",
+//       resource_type: "auto",
+//     });
+
+//     res.json({
+//       success: true,
+//       url: uploadRes.secure_url,
+//       public_id: uploadRes.public_id,
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({
+//       message: "Upload failed",
+//       error: err.message,
+//     });
+//   }
+// };
+
+export const uploadDocument = async (req, res) => {
+  try {
+
+    // 1️⃣ Validate file
+    if (!req.files || !req.files.file) {
+      return res.status(400).json({ message: "File required" });
+    }
+
+    const file = req.files.file;
+
+    // 2️⃣ Upload to Cloudinary
+    const uploadRes = await cloudinary.uploader.upload(file.tempFilePath, {
+      folder: "aimind_docs",
+      resource_type: "auto",
+    });
+
+    const fileUrl = uploadRes.secure_url;
+    const publicId = uploadRes.public_id;
+
+    // 3️⃣ Extract Text (PDF / Image)
+    let extractedText = "";
+
+    if (file.mimetype === "application/pdf") {
+      const dataBuffer = fs.readFileSync(file.tempFilePath);
+      const pdfData = await pdfParse(dataBuffer);
+      extractedText = pdfData.text;
+    } else {
+      extractedText = "Image uploaded — text extraction not added yet.";
+    }
+
+    console.log("Extracted Text:", extractedText.substring(0, 200));
+
+    // 4️⃣ Create Embedding using OpenAI
+    const embedRes = await axios.post(
+    "https://api.groq.com/openai/v1/embeddings",
+    {
+      model: "text-embedding-3-small",
+      input: extractedText
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+
+  const vector = embedRes.data.data[0].embedding;
+  console.log("Embedding length:", vector.length);
+
+    // 5️⃣ Save in MongoDB
+    const doc = await Document.create({
+      userId: req.user.id,
+      fileUrl,
+      publicId,
+      text: extractedText,
+      embedding: vector
+    });
+
+    res.json({
+      success: true,
+      message: "Document stored with embedding",
+      id: doc._id,
+      fileUrl
+    });
+
+  } catch (err) {
+    console.error("UPLOAD ERROR:", err);
+    res.status(500).json({
+      message: "Upload failed",
+      error: err.message,
+    });
   }
 };
