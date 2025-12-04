@@ -7,8 +7,9 @@ import Message from "../models/Message.js";
 import axios from "axios";
 import cloudinary from "../config/cloudinary.js";
 import Document from "../models/Document.js"; 
+import FormData from "form-data";
 import fs from "fs";
-const { default: pdfParse } = await import("pdf-parse");
+import Tesseract from "tesseract.js";
 
 // ---------------------- SIGNUP ----------------------
 export const signup = async (req, res) => {
@@ -589,77 +590,268 @@ export const getChatHistory = async (req, res) => {
 //   }
 // };
 
+// export const uploadDocument = async (req, res) => {
+//   try {
+
+//     // 1️⃣ Validate file
+//     if (!req.files || !req.files.file) {
+//       return res.status(400).json({ message: "File required" });
+//     }
+
+//     const file = req.files.file;
+
+//     // 2️⃣ Upload to Cloudinary
+//     const uploadRes = await cloudinary.uploader.upload(file.tempFilePath, {
+//       folder: "aimind_docs",
+//       resource_type: "auto",
+//     });
+
+//     const fileUrl = uploadRes.secure_url;
+//     const publicId = uploadRes.public_id;
+
+//     // 3️⃣ Extract Text (PDF / Image)
+//     let extractedText = "";
+
+//     if (file.mimetype === "application/pdf") {
+//       const dataBuffer = fs.readFileSync(file.tempFilePath);
+//       const pdfData = await pdfParse(dataBuffer);
+//       extractedText = pdfData.text;
+//     } else {
+//       extractedText = "Image uploaded — text extraction not added yet.";
+//     }
+
+//     console.log("Extracted Text:", extractedText.substring(0, 200));
+
+//     // 4️⃣ Create Embedding using OpenAI
+//     const embedRes = await axios.post(
+//     "https://api.groq.com/v1/embeddings",
+//     {
+//       model: "text-embedding-3-small",
+//       input: extractedText
+//     },
+//     {
+//       headers: {
+//         Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+//         "Content-Type": "application/json"
+//       }
+//     }
+//   );
+
+//   const vector = embedRes.data.data[0].embedding;
+//   console.log("Embedding length:", vector.length);
+
+//     // 5️⃣ Save in MongoDB
+//     const doc = await Document.create({
+//       userId: req.user.id,
+//       fileUrl,
+//       publicId,
+//       text: extractedText,
+//       embedding: vector
+//     });
+
+//     res.json({
+//       success: true,
+//       message: "Document stored with embedding",
+//       id: doc._id,
+//       fileUrl
+//     });
+
+//   } catch (err) {
+//     console.error("UPLOAD ERROR:", err);
+//     res.status(500).json({
+//       message: "Upload failed",
+//       error: err.message,
+//     });
+//   }
+// };
+
+
+// export const uploadDocument = async (req, res) => {
+//   try {
+//     if (!req.files || !req.files.file) {
+//       return res.status(400).json({ message: "Image required" });
+//     }
+
+//     const file = req.files.file;
+
+//     // Upload to Cloudinary
+//     const uploadRes = await cloudinary.uploader.upload(file.tempFilePath, {
+//       folder: "aimind_ocr",
+//       resource_type: "image",
+//     });
+
+//     const fileUrl = uploadRes.secure_url;
+
+//     console.log("Loaded OCR KEY:", process.env.OCR_API_KEY);
+
+//     // Prepare form-data for OCR.Space
+//     const form = new FormData();
+//     form.append("apikey", process.env.OCR_API_KEY);
+//     form.append("url", fileUrl); // Cloudinary URL
+//     form.append("language", "eng");
+
+//     // OCR API call
+//     const ocrRes = await axios.post(
+//       "https://api.ocr.space/parse/image",
+//       form,
+//       { headers: form.getHeaders() }
+//     );
+
+//     const text =
+//       ocrRes.data?.ParsedResults?.[0]?.ParsedText || "No text found";
+
+//     // Save in DB
+//     await Document.create({
+//       userId: req.user.id,
+//       fileUrl,
+//       text,
+//     });
+
+//     return res.json({
+//       success: true,
+//       fileUrl,
+//       extractedText: text,
+//     });
+
+//   } catch (err) {
+//     console.error("OCR ERROR:", err?.response?.data || err.message);
+//     return res.status(500).json({
+//       success: false,
+//       message: "OCR failed",
+//       error: err?.response?.data || err.message,
+//     });
+//   }
+// };
+
+
 export const uploadDocument = async (req, res) => {
   try {
-
-    // 1️⃣ Validate file
     if (!req.files || !req.files.file) {
-      return res.status(400).json({ message: "File required" });
+      return res.status(400).json({ message: "Image required" });
     }
 
     const file = req.files.file;
 
-    // 2️⃣ Upload to Cloudinary
     const uploadRes = await cloudinary.uploader.upload(file.tempFilePath, {
-      folder: "aimind_docs",
-      resource_type: "auto",
+      folder: "aimind_ocr",
+      resource_type: "image",
     });
 
     const fileUrl = uploadRes.secure_url;
-    const publicId = uploadRes.public_id;
 
-    // 3️⃣ Extract Text (PDF / Image)
-    let extractedText = "";
-
-    if (file.mimetype === "application/pdf") {
-      const dataBuffer = fs.readFileSync(file.tempFilePath);
-      const pdfData = await pdfParse(dataBuffer);
-      extractedText = pdfData.text;
-    } else {
-      extractedText = "Image uploaded — text extraction not added yet.";
-    }
-
-    console.log("Extracted Text:", extractedText.substring(0, 200));
-
-    // 4️⃣ Create Embedding using OpenAI
-    const embedRes = await axios.post(
-    "https://api.groq.com/openai/v1/embeddings",
-    {
-      model: "text-embedding-3-small",
-      input: extractedText
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json"
+    const { data: { text }} = await Tesseract.recognize(
+      file.tempFilePath,
+      "eng",
+      {
+        logger: (m) => console.log(m),
       }
-    }
-  );
+    );
 
-  const vector = embedRes.data.data[0].embedding;
-  console.log("Embedding length:", vector.length);
-
-    // 5️⃣ Save in MongoDB
-    const doc = await Document.create({
+    await Document.create({
       userId: req.user.id,
       fileUrl,
-      publicId,
-      text: extractedText,
-      embedding: vector
+      text,
     });
 
-    res.json({
+    // 🔥 1️⃣ Add Upload Message to Chat History
+    await Message.create({
+      userId: req.user.id,
+      role: "user",
+      content: "📤 Uploaded an image",
+      imageUrl: fileUrl,    // 🔥 IMPORTANT
+    });
+
+    // 🔥 2️⃣ Add OCR Extraction Message to Chat History
+    await Message.create({
+      userId: req.user.id,
+      role: "assistant",
+      content: `📄 Extracted Text:\n\n${text}`,
+    });
+
+    return res.json({
       success: true,
-      message: "Document stored with embedding",
-      id: doc._id,
-      fileUrl
+      fileUrl,
+      extractedText: text,
     });
 
   } catch (err) {
-    console.error("UPLOAD ERROR:", err);
+    console.error("OCR ERROR:", err);
+    return res.status(500).json({ success: false, message: "OCR processing error" });
+  }
+};
+
+// ================= ASK =================
+export const ask = async (req, res) => {
+  try {
+    const { question } = req.body;
+
+    if (!question) {
+      return res.status(400).json({ message: "Question is required" });
+    }
+
+    // 1️⃣ Get latest OCR document for this user
+    const docs = await Document.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .limit(1);
+
+    if (!docs.length) {
+      return res.json({
+        answer: "No extracted text found. Upload an image first."
+      });
+    }
+
+    const lastDoc = docs[0];
+
+    // 2️⃣ Add user question to chat history
+    await Message.create({
+      userId: req.user.id,
+      role: "user",
+      content: `[OCR-ASK] ${question}`,
+    });
+
+    // 3️⃣ Call AI using question + OCR text
+    const groqRes = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: "You are an AI that answers questions using the provided OCR text."
+          },
+          {
+            role: "user",
+            content: `Here is the extracted text:\n\n${lastDoc.text}\n\nQuestion: ${question}`
+          }
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        },
+      }
+    );
+
+    const aiAnswer = groqRes.data.choices[0].message.content;
+
+    // 4️⃣ Save AI answer also
+    await Message.create({
+      userId: req.user.id,
+      role: "assistant",
+      content: aiAnswer,
+    });
+
+    // 5️⃣ Send back to frontend
+    return res.json({
+      answer: aiAnswer,
+      image: lastDoc.fileUrl,
+    });
+
+  } catch (err) {
+    console.error("ASK ERROR:", err?.response?.data || err.message);
     res.status(500).json({
-      message: "Upload failed",
-      error: err.message,
+      message: "Server Error",
+      error: err?.response?.data || err.message,
     });
   }
 };
