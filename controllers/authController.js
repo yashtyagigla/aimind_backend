@@ -495,7 +495,14 @@ export const chat = async (req, res) => {
       }
     );
 
-    const aiReply = aiRes.data.choices[0].message.content;
+    let aiReply = aiRes.data.choices[0].message.content;
+
+// CLEANING ON BACKEND (no change in frontend)
+  aiReply = aiReply
+  .replace(/\\n/g, "\n")     // Converts \n → real new line
+  .replace(/\r/g, "")        // remove weird \r
+  .replace(/\n{3,}/g, "\n\n") // remove extra empty lines
+  .trim();
 
     // 3️⃣ Save AI reply in DB
     await Message.create({
@@ -739,13 +746,21 @@ export const uploadDocument = async (req, res) => {
 
     const fileUrl = uploadRes.secure_url;
 
-    const { data: { text }} = await Tesseract.recognize(
-      file.tempFilePath,
-      "eng",
-      {
-        logger: (m) => console.log(m),
-      }
-    );
+    // OCR Extract
+  let { data: { text } } = await Tesseract.recognize(
+    file.tempFilePath,
+    "eng",
+    {
+      logger: (m) => console.log(m),
+    }
+  );
+
+  // 🧹 CLEAN THE OCR TEXT
+  text = text
+    .replace(/\\n/g, "\n")      // remove escaped newline
+    .replace(/\r/g, "")         // remove carriage returns
+    .replace(/\n{3,}/g, "\n\n") // no excessive line breaks
+    .trim();
 
     await Document.create({
       userId: req.user.id,
